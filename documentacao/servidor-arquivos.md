@@ -1,35 +1,50 @@
 # Módulo M3 — Servidor de Arquivos Centralizado (Samba)
 
-## Visão Geral
-Servidor de arquivos configurado com Samba na sub-rede LAN (`10.0.2.0/24`) para fornecer armazenamento compartilhado e servir como ponto de recepção dos backups automáticos do banco de dados PostgreSQL.
+## 1. Visão geral
 
----
+Servidor de arquivos com **Samba 4** na LAN (`10.0.2.0/24`), IP estático `10.0.2.10`, nome `SRV-ARQUIVOS`.
+Serve armazenamento compartilhado aos usuários e recebe os backups automáticos do PostgreSQL.
 
-## Estrutura de Diretórios e Compartilhamentos
+Escolha do Samba (em vez de NFS): interoperabilidade com estações Windows e Linux e autenticação por usuário/grupo.
 
-Abaixo estão detalhados os diretórios criados no servidor e as respetivas políticas de acesso:
+## 2. Instalação e provisionamento
 
-| Compartilhamento | Caminho no Servidor | Permissões | Controle de Acesso | Descrição |
-| :--- | :--- | :--- | :--- | :--- |
-| `[publico]` | `/compartilhado/publico` | `775` | Leitura e escrita livre (Guest/LAN) | Arquivos de uso geral para a equipe. |
-| `[projetos]` | `/compartilhado/projetos` | `770` | Restrito (`@devs`, `@admin`) | Espaço de trabalho colaborativo para desenvolvimento[cite: 1]. |
-| `[backups]` | `/compartilhado/backups` | `700` | Restrito (`backup_user`, `@admin`) | Destino seguro para os arquivos `.tar.gz` gerados pelo script de backup[cite: 1]. |
+```bash
+sudo ./samba/provisionar_servidor_arquivos.sh   # Integrante 3: Samba, pastas, smb.conf, serviço
+sudo SENHA_INICIAL='...' ./usuarios/setup_usuarios_permissoes.sh   # Integrante 4: usuários, permissões, quotas
+```
 
----
+O primeiro script instala o Samba, cria as pastas, aplica o `samba/smb.conf` e habilita o `smbd`.
+O IP estático é configurado com `samba/netplan-servidor-arquivos.yaml` (`sudo netplan apply`).
 
-## Configuração do Serviço (`smb.conf`)
-O arquivo de configuração principal (`/etc/samba/smb.conf`) foi ajustado para garantir o isolamento adequado na rede local e o mapeamento correto dos grupos POSIX.
+## 3. Estrutura de diretórios e compartilhamentos
 
----
+| Compartilhamento | Caminho no servidor | Modo | Quem acessa | Descrição |
+|---|---|---|---|---|
+| `[publico]` | `/srv/samba/compartilhado/publico` | `2775` | Qualquer cliente da LAN (convidado) | Arquivos de uso geral |
+| `[projetos]` | `/srv/samba/compartilhado/projetos` | `2770` + ACL | `@devs`, `@diretoria` | Trabalho colaborativo |
+| `[backups]` | `/srv/samba/compartilhado/backups` | `2770` | `@backup_mgr` | Destino dos `.tar.gz` do PostgreSQL |
 
-## Procedimentos de Teste e Validação
+## 4. Configuração do serviço (`smb.conf`)
 
-Para validar o funcionamento do servidor de arquivos a partir de um cliente na LAN (`10.0.2.0/24`)[cite: 1]:
+| Parâmetro | Função |
+|---|---|
+| `interfaces` + `bind interfaces only` | Escuta somente na interface da LAN (`10.0.2.10`) |
+| `hosts allow` / `hosts deny = ALL` | Aceita só a LAN (`10.0.2.0/24`) e o servidor DB (`10.0.3.10`, para o backup) |
+| `server min protocol = SMB2` | Desativa SMB1 (inseguro) |
+| `disable netbios = yes` | Não usa o NetBIOS legado (nmbd desativado) |
+| `map to guest = Bad User` | Convidado só funciona no share `[publico]` |
+| `valid users = @grupo` | Restringe cada share aos grupos POSIX autorizados |
+| `create mask` / `directory mask` | Arquivos novos sem acesso para "outros" (exceto `publico`) |
 
-1. **Testar listagem de compartilhamentos:**
-   ```bash
-   smbclient -L IP_DO_SERVIDOR_DE_ARQUIVOS -U%
+O controle de acesso combina duas camadas: o Samba (`valid users`) e as permissões POSIX/ACL do sistema de arquivos (ver `usuarios-permissoes.md`).
 
-   ## Testes de Validação e Controle de Acesso
+## 5. Acesso pela rede LAN
 
-Para comprovar o isolamento e o cumprimento da política de privilégio mínimo, foram realizados os seguintes testes de acesso na rede LAN (`10.0.2.0/24`):
+- Clientes e servidor de arquivos estão na **mesma sub-rede** (LAN), então o tráfego não passa pelo firewall.
+- Portas usadas: `445/TCP` (SMB) e `139/TCP`.
+- O backup vem do servidor DB (zona DB, `10.0.3.10`) e **atravessa o firewall**: é preciso uma regra DB → `10.0.2.10` na porta usada pelo envio (SSH/SCP `22` ou SMB `445`). Essa regra é do firewall (Integrante 1) e deve ser combinada com o Integrante 5.
+
+## 6. Testes
+
+Os testes de leitura, escrita e restrição estão em [`testes-acesso.md`](testes-acesso.md).
