@@ -1,0 +1,6 @@
+# Crontab de backup_user em 10.0.2.10; horário local da VM.
+SHELL=/bin/bash
+PATH=/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin
+HOME=/home/backup_user
+# Todos os dias às 02:30; conferir modo 0600 se o log já existir. Instalação manual via crontab -e.
+30 2 * * * umask 077; /bin/bash /opt/empresa-backup/coletar_backup.sh >> /home/backup_user/coleta-backup.log 2>&1
