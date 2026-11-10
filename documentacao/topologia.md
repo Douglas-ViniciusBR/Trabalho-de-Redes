@@ -1,49 +1,49 @@
-# Topologia da Rede
+# Topologia da Rede e Arquitetura da Infraestrutura
 
-## 1. Visão geral
+## 1. Visão Geral
+A infraestrutura de rede foi planejada, implantada e consolidada para segmentar os serviços em três zonas de segurança isoladas: **DMZ**, **LAN** e **DB**. O controle de acesso e filtragem rígida de tráfego entre essas redes é realizado por uma máquina Firewall dedicada utilizando Ubuntu Server e o subsistema `nftables`.
 
-A infraestrutura de rede foi planejada para separar os serviços em três zonas de segurança: DMZ, LAN e DB.
-
-O controle da comunicação entre essas redes será realizado por uma máquina Firewall utilizando Ubuntu Server e nftables.
-
-## 2. Diagrama lógico
+## 2. Diagrama Lógico de Rede
 
 ```text
-              INTERNET
-                  |
-             [ FIREWALL ]
-              Ubuntu Server
-                  |
-       +----------+----------+
-       |          |          |
-      DMZ        LAN         DB
-  10.0.1.0/24 10.0.2.0/24 10.0.3.0/24
-       |          |          |
-   Servidor    Servidor    Servidor
-     Web       de Arquivos  PostgreSQL
-   (Nginx)      (Samba)    (Banco de Dados)
-```
+                             INTERNET / WAN
+                                    |
+                             [ FIREWALL ]
+                             Ubuntu Server
+                                    |
+       +----------------------------+----------------------------+
+       | (enp0s8)                   | (enp0s9)                   | (enp0s10)
+       | 10.0.1.1/24                | 10.0.2.1/24                | 10.0.3.1/24
+       v                            v                            v
++-------------------+        +-------------------+        +-------------------+
+|     Zona DMZ      |        |     Zona LAN      |        |      Zona DB      |
+|  Servidor Web     |        | Servidor Arquivos |        | Servidor DB       |
+|  (Nginx / Flask)  |        |      (Samba)      |        |   (PostgreSQL)    |
+|   IP: 10.0.1.10   |        |   IP: 10.0.2.10   |        |   IP: 10.0.3.10   |
++-------------------+        +-------------------+        +-------------------+
 
-## 3. Interfaces do Firewall
+3. Interfaces do Firewall
+Interface	Zona	Endereço IP / Máscara	Função / Estado
+enp0s3	WAN	Obtido via DHCP	Conexão com a rede externa / Internet.
+enp0s8	DMZ	10.0.1.1/24	Gateway da Zona Desmilitarizada.
+enp0s9	LAN	10.0.2.1/24	Gateway da Rede Interna / Corporativa.
+enp0s10	DB	10.0.3.1/24	Gateway da Zona de Banco de Dados.
+4. Finalidade das Zonas e Serviços Alocados
+WAN (enp0s3): Prover conectividade externa e permitir o mascaramento de IP (NAT) para saída da rede interna.
 
-| Interface | Zona | Endereço IP |
-|---|---|---|
-| enp0s3 | WAN | Obtido via DHCP |
-| enp0s8 | DMZ | 10.0.1.1/24 |
-| enp0s9 | LAN | 10.0.2.1/24 |
-| enp0s10 | DB | 10.0.3.1/24 |
+DMZ (10.0.1.0/24): Abriga o Servidor Web Nginx (10.0.1.10) atuando como Proxy Reverso para a aplicação Flask. É a única zona acessível publicamente via portas 80/443 TCP.
 
-## 4. Finalidade das zonas
+LAN (10.0.2.0/24): Destinada às estações administrativas e ao Servidor de Arquivos Samba (10.0.2.10). Possui permissão exclusiva de acesso via SSH (porta 22 TCP) para gerenciamento de todas as máquinas.
 
-- **WAN:** conexão com a rede externa e internet.
-- **DMZ:** destinada ao servidor Web, que disponibilizará a aplicação.
-- **LAN:** destinada aos usuários internos e ao compartilhamento de arquivos.
-- **DB:** destinada ao servidor PostgreSQL, mantendo os dados isolados das demais redes.
+DB (10.0.3.0/24): Zona restrita onde reside o banco de dados PostgreSQL (10.0.3.10). Isolada de conexões externas e da LAN, aceitando conexões estritamente vindas da aplicação na DMZ (porta 5432 TCP).
 
-## 5. Estado da implementação
+5. Estado da Implementação
+Concluído e Validado.
 
-Até o momento, a máquina Firewall foi instalada e suas quatro interfaces de rede foram configuradas.
+A máquina Firewall foi instalada, as 4 interfaces foram configuradas e as tabelas de roteamento foram habilitadas no kernel (net.ipv4.ip_forward=1).
 
-Os servidores Web, de arquivos e de banco de dados ainda serão implantados nas próximas etapas.
+Os servidores Nginx/Flask, Samba e PostgreSQL foram devidamente instalados e alocados em seus respetivos IPs estáticos.
 
-**Documento em desenvolvimento.**
+As regras de firewall no nftables foram aplicadas com política padrão DROP, liberando apenas os fluxos validados na matriz de conectividade.
+
+Os testes de comunicação (liberação do PostgreSQL para a DMZ e bloqueio total de tráfego não autorizado vindo da WAN) foram executados e homologados com sucesso.
